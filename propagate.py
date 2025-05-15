@@ -1,13 +1,19 @@
 from sgp4.api import Satrec, WGS72, jday
 from datetime import datetime, timezone
 
-def propagate_one(tle: tuple) -> tuple:
+def propagate_one(tle: tuple, when: datetime = None) -> tuple:
+    """
+    Propagate a single satellite using SGP4 to ECI position at given time.
+    """
     name, line1, line2 = tle
     sat = Satrec.twoline2rv(line1, line2, WGS72)
-    now = datetime.now(timezone.utc)
+    if when is None:
+        when = datetime.now(timezone.utc)
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
     jd, fr = jday(
-        now.year, now.month, now.day,
-        now.hour, now.minute, now.second + now.microsecond * 1e-6
+        when.year, when.month, when.day,
+        when.hour, when.minute, when.second + when.microsecond * 1e-6
     )
     e, r, v = sat.sgp4(jd, fr)
     if e != 0:
