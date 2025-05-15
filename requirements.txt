@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+requests
+sgp4
+numpy
+pandas
+scipy
+python-dotenv
