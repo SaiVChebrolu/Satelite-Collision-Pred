@@ -5,6 +5,7 @@ from scipy.spatial import cKDTree
 from propagate import propagate_one
 from fetch_tles import fetch_tle
 
+
 def init_db(db_path: str = "collisions.db") -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
@@ -20,16 +21,31 @@ def init_db(db_path: str = "collisions.db") -> sqlite3.Connection:
     conn.commit()
     return conn
 
+
+def find_conjunctions(sats: list, threshold_km: float = 10.0, when: datetime = None) -> set:
+    """
+    Propagate all satellites at a single epoch and return index pairs within threshold_km.
+    """
+    # propagate positions
+    pts = []
+    for tle in sats:
+        _, pos, _ = propagate_one(tle, when)
+        pts.append(pos)
+    pts = np.array(pts)
+    tree = cKDTree(pts)
+    return tree.query_pairs(threshold_km)
+
+
 def sweep_conjunctions_to_db(
     sats: list,
-    years: int = 0.1,
+    years: int = 10,
     step_sec: int = 60,
-    threshold_km: float = 50.0,
+    threshold_km: float = 10.0,
     db_path: str = "collisions.db"
 ) -> None:
     """
     Sweep from now to now+years, check every step_sec seconds for conjunctions,
-    store and log each event in the SQLite database.
+    store and log each event in the SQLite database and print status.
     """
     conn = init_db(db_path)
     c = conn.cursor()
@@ -37,14 +53,15 @@ def sweep_conjunctions_to_db(
     end = start + timedelta(days=365 * years)
     t = start
     while t <= end:
-        pts = [propagate_one(tle, t)[1] for tle in sats]
-        tree = cKDTree(np.array(pts))
-        pairs = tree.query_pairs(threshold_km)
+        pairs = find_conjunctions(sats, threshold_km, when=t)
         if pairs:
             for i, j in pairs:
                 name_i = sats[i][0].strip()
                 name_j = sats[j][0].strip()
-                dist = float(np.linalg.norm(np.array(pts[i]) - np.array(pts[j])))
+                # recompute positions for distance
+                _, pos_i, _ = propagate_one(sats[i], t)
+                _, pos_j, _ = propagate_one(sats[j], t)
+                dist = float(np.linalg.norm(np.array(pos_i) - np.array(pos_j)))
                 c.execute(
                     "INSERT INTO collisions (timestamp, sat1, sat2, distance) VALUES (?, ?, ?, ?)",
                     (t.isoformat(), name_i, name_j, dist)
@@ -55,6 +72,7 @@ def sweep_conjunctions_to_db(
             print(f"[{t.isoformat()}] No collisions detected")
         t += timedelta(seconds=step_sec)
     conn.close()
+
 
 if __name__ == "__main__":
     sats = fetch_tle()[:200]
